@@ -20,13 +20,13 @@ const FENCE = '`'.repeat(3)
 const artifactSources = [
   [
     '<!-- title: 示例：计数器 -->',
-    '<style>body{font:14px -apple-system;margin:16px;display:flex;gap:10px;align-items:center}button{font-size:15px;padding:6px 16px;border-radius:8px;border:1px solid #d0d4dc;background:#fff;cursor:pointer}button:hover{background:#f0f2f7}#out{font-size:20px;font-weight:700}</style>',
+    '<style>body{font:14px -apple-system,"PingFang SC",sans-serif;margin:16px;display:flex;gap:10px;align-items:center;background:var(--gui-bg,#fff);color:var(--gui-fg,#111)}button{font-size:15px;padding:6px 16px;border-radius:8px;border:1px solid var(--gui-border,#d0d4dc);background:var(--gui-bg-soft,#fff);color:inherit;cursor:pointer}button:hover{filter:brightness(0.96)}#out{font-size:20px;font-weight:700}</style>',
     '<button id="b">+1</button> <span id="out">0</span>',
     '<script>let n=0;b.onclick=()=>{n++;out.textContent=n};</scr' + 'ipt>',
   ].join('\n'),
   [
     '<!-- title: 示例：BMI 快算 -->',
-    '<style>body{font:14px -apple-system;margin:16px}label{display:block;margin:8px 0 2px;color:#555}input{width:120px;padding:5px 8px;border:1px solid #d0d4dc;border-radius:6px;font-size:14px}#r{margin-top:10px;font-size:16px;font-weight:600}</style>',
+    '<style>body{font:14px -apple-system,"PingFang SC",sans-serif;margin:16px;background:var(--gui-bg,#fff);color:var(--gui-fg,#111)}label{display:block;margin:8px 0 2px;color:var(--gui-fg-dim,#555)}input{width:120px;padding:5px 8px;border:1px solid var(--gui-border,#d0d4dc);border-radius:6px;font-size:14px;background:var(--gui-bg-soft,#fff);color:inherit}#r{margin-top:10px;font-size:16px;font-weight:600}</style>',
     '<label>身高 (cm)</label><input id="h" value="175">',
     '<label>体重 (kg)</label><input id="w" value="68">',
     '<div id="r">BMI 22.2 · 正常</div>',

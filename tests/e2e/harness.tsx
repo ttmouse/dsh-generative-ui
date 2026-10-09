@@ -72,8 +72,17 @@ if (!located || located.value.arts.length !== 1) throw new Error('accumulator di
 // Mount the turnTail component the way the host would: turn.data carries the
 // projected location values keyed by accumulator kind.
 const container = document.getElementById('root')
-const turn = { data: new Map([['generative-ui', { arts: located.value.arts }]]) }
+const turn = { data: new Map([['generative-ui', { arts: located.value.arts, live: null }]]) }
 const [{ component }] = turnTailComponents
 createRoot(container).render(createElement(component, { turn }))
 
-window.__e2e__ = { ready: true }
+// Expose a way for run.mjs to re-mount with a live streaming tail, simulating
+// the host feeding progressively longer partial sources during generation.
+window.__e2e__ = {
+  ready: true,
+  artifactSource: located.value.arts[0].source,
+  mountWithLive: (liveSource: string | null) => {
+    const liveTurn = { data: new Map([['generative-ui', { arts: located.value.arts, live: liveSource }]]) }
+    createRoot(container).render(createElement(component, { turn: liveTurn }))
+  },
+}

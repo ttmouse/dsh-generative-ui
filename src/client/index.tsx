@@ -32,13 +32,13 @@ interface TurnMatch {
 }
 
 /** Accumulator state for one turn. */
-interface TurnState { turn: unknown; arts: Artifact[] }
+interface TurnState { turn: unknown; arts: Artifact[]; liveSource: string | null }
 
 /** Projected per-turn location record. */
-interface TurnLocation { kind: 'turn'; turn: unknown; key: string; value: { arts: Artifact[] } }
+interface TurnLocation { kind: 'turn'; turn: unknown; key: string; value: { arts: Artifact[]; live: string | null } }
 
 /** The turn object handed to turnTail slot components. */
-interface TurnLike { data?: Map<string, { arts?: Artifact[] }> | { get(key: string): { arts?: Artifact[] } } | null }
+interface TurnLike { data?: Map<string, { arts?: Artifact[]; live?: string | null }> | { get(key: string): { arts?: Artifact[]; live?: string | null } } | null }
 
 /** Minimal client context contract used by this plugin. */
 interface GenerativeUiContext {
@@ -52,8 +52,12 @@ interface GenerativeUiContext {
 
 const FENCE_RE = /```generative-ui[^\n]*\n([\s\S]*?)```/g
 const TITLE_RE = /<!--\s*title:\s*(.+?)\s*-->/
+const FENCE_MARKER = '```generative-ui'
 const MAX_HEIGHT = 600
 const MIN_HEIGHT = 120
+/** Streaming re-render cadence (ported from Reasonix PR #5749). */
+const RENDER_DEBOUNCE_MS = 100
+const RENDER_MAX_WAIT_MS = 500
 
 /** djb2 over the source: stable per artifact, good enough for keys. */
 function hashSource(source: string): string {
@@ -69,13 +73,67 @@ export function extractArtifacts(text: unknown): Artifact[] {
   for (const match of text.matchAll(FENCE_RE)) {
     const source = match[1]
     if (!source.trim()) continue
-    const title = (source as string).match(TITLE_RE)?.[1] ?? `工件 #${artifacts.length + 1}`
-    artifacts.push({ id: hashSource(source), title: title.slice(0, 60), source })
+    const title = (source as string).match(TITLE_RE)?.[1]
+    const cleanTitle = title?.trim() ? title.trim().slice(0, 60) : `工件 #${artifacts.length + 1}`
+    artifacts.push({ id: hashSource(source), title: cleanTitle, source })
   }
   return artifacts
 }
 
-/** Height-reporting bootstrap injected into every artifact document. */
+/**
+ * The still-unclosed trailing ```generative-ui fence while the model is
+ * streaming: the partial source that lets a card grow during generation.
+ * Returns null once every fence in the text is closed (or none exists).
+ */
+export function extractStreamingTail(text: unknown): string | null {
+  if (typeof text !== 'string') return null
+  const start = text.lastIndexOf(FENCE_MARKER)
+  if (start === -1) return null
+  const rest = text.slice(start + FENCE_MARKER.length)
+  if (rest.includes('```')) return null
+  const newline = rest.indexOf('\n')
+  const source = newline === -1 ? '' : rest.slice(newline + 1)
+  return source.trim() ? source : null
+}
+
+/**
+ * Host CSS variables mapped to the standard names injected into every artifact
+ * document (ported from Reasonix PR #5749). The widget renders in an
+ * opaque-origin sandbox, so the host cannot set styles imperatively — theme
+ * travels in via srcdoc for first paint and via postMessage for later switches.
+ */
+const HOST_VAR_MAP: Record<string, string[]> = {
+  '--gui-bg': ['--dsw-alias-bg-base', '--dsw-alias-bg-layer-1', '--background'],
+  '--gui-bg-soft': ['--dsw-alias-bg-layer-2', '--dsw-alias-bg-secondary'],
+  '--gui-fg': ['--dsw-alias-label-primary', '--foreground'],
+  '--gui-fg-dim': ['--dsw-alias-label-secondary', '--muted-foreground'],
+  '--gui-border': ['--dsw-alias-border-l1', '--border'],
+  '--gui-accent': ['--dsw-alias-brand-primary', '--dsw-alias-accent', '--accent', '#3b82f6'],
+}
+
+/** Read the host theme variables into a plain map (first missing entry wins). */
+export function collectThemeVars(): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') return out
+  const style = getComputedStyle(document.documentElement)
+  for (const [std, hosts] of Object.entries(HOST_VAR_MAP)) {
+    for (const host of hosts) {
+      // Literal-color entries (e.g. "#3b82f6") are last-resort defaults used
+      // when the host defines none of the variables in the list.
+      const value = host.startsWith('#') ? host : style.getPropertyValue(host).trim()
+      if (value) { out[std] = value; break }
+    }
+  }
+  return out
+}
+
+/** Serialize a theme-var map as a :root declaration block. */
+export function themeVarsToCss(vars: Record<string, string>): string {
+  const decls = Object.entries(vars).map(([k, v]) => `${k}:${v}`)
+  return decls.length > 0 ? `:root{${decls.join(';')}}` : ''
+}
+
+/** Height + theme bootstrap injected into every artifact document. */
 const BOOTSTRAP = `<script>(function(){
   var last=0;
   function report(){
@@ -84,11 +142,20 @@ const BOOTSTRAP = `<script>(function(){
   }
   new ResizeObserver(report).observe(document.documentElement);
   window.addEventListener("load",report);report();
+  window.addEventListener("message",function(e){
+    if(e.source!==parent)return;
+    var d=e.data;
+    if(d&&d.type==="generative-ui:theme"&&d.vars){
+      var r=document.documentElement;
+      for(var k in d.vars){if(k.indexOf("--")===0)r.style.setProperty(k,String(d.vars[k]))}
+      report();
+    }
+  });
 })()</script>`
 
-/** Build the sandboxed document for one artifact. */
-export function artifactDocument(source: string): string {
-  const body: string = /<html[\s>]/i.test(source) ? source : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head><body>${source}</body></html>`
+/** Build the sandboxed document for one artifact (themeCss inlined for first paint). */
+export function artifactDocument(source: string, themeCss: string = ''): string {
+  const body: string = /<html[\s>]/i.test(source) ? source : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">${themeCss ? `<style>${themeCss}</style>` : ''}</head><body>${source}</body></html>`
   return body.includes('</body>') ? body.replace('</body>', `${BOOTSTRAP}</body>`) : body + BOOTSTRAP
 }
 
@@ -101,23 +168,29 @@ export const generativeUiTurnDefinition = {
     return null
   },
   start(_context: unknown, match: TurnMatch) {
-    return { turn: match.event.data?.turn, arts: [] }
+    return { turn: match.event.data?.turn, arts: [], liveSource: null }
   },
   update(context: { state: TurnState | undefined }, match: TurnMatch) {
     if (context.state === undefined || match.event.type !== 'assistant/message') return context.state
     const blocks = match.event.data?.message?.content
     const texts: string[] = Array.isArray(blocks) ? blocks.filter((block) => block?.type === 'text' && typeof block.text === 'string').map((block) => block.text) : []
-    const arts = texts.flatMap(extractArtifacts)
-    if (arts.length === 0) return context.state
+    const joined = texts.join('\n')
+    const arts = extractArtifacts(joined)
+    const liveSource = extractStreamingTail(joined)
+    if (arts.length === 0 && liveSource === null) return context.state
     const known = new Set(context.state.arts.map((art: Artifact) => art.id))
     const merged = [...context.state.arts, ...arts.filter((art) => !known.has(art.id))]
-    return merged === context.state.arts ? context.state : { ...context.state, arts: merged }
+    const liveChanged = (context.state.liveSource ?? null) !== liveSource
+    if (merged === context.state.arts && !liveChanged) return context.state
+    return { ...context.state, arts: merged, liveSource }
   },
   buildLocationData(context: { state: TurnState | undefined }, scope: string, previous: TurnLocation | null) {
-    if (scope !== 'turn' || context.state === undefined || context.state.arts.length === 0) return null
+    if (scope !== 'turn' || context.state === undefined || (context.state.arts.length === 0 && (context.state.liveSource ?? null) === null)) return null
     const state = context.state
-    if (previous?.kind === 'turn' && previous.turn === state.turn && previous.key === TURN_KEY && previous.value?.arts === state.arts) return previous
-    return { kind: 'turn', turn: state.turn, key: TURN_KEY, value: { arts: state.arts } }
+    const live = state.liveSource ?? null
+    if (previous?.kind === 'turn' && previous.turn === state.turn && previous.key === TURN_KEY
+      && previous.value?.arts === state.arts && previous.value?.live === live) return previous
+    return { kind: 'turn', turn: state.turn, key: TURN_KEY, value: { arts: state.arts, live } }
   },
 }
 
@@ -131,12 +204,43 @@ function readTurnArtifacts(turn: TurnLike): Artifact[] {
   return Array.isArray(value?.arts) ? value.arts : []
 }
 
-/** One sandboxed artifact card. */
-function ArtifactCard({ artifact }: { artifact: Artifact }) {
+/** Read the projected streaming tail off a turn object. */
+function readTurnLive(turn: TurnLike): string | null {
+  const data = turn?.data
+  const value = data === null || data === undefined ? undefined
+    : typeof data.get === 'function' ? data.get(TURN_KEY)
+    : data instanceof Map ? data.get(TURN_KEY)
+    : undefined
+  return typeof value?.live === 'string' && value.live ? value.live : null
+}
+
+/** One sandboxed artifact. Renders bare — no card chrome, no buttons: the
+ *  artifact sits inline in the conversation flow like any other message
+ *  content. `streaming` = source still growing (live tail). */
+function ArtifactCard({ artifact, streaming = false }: { artifact: Artifact; streaming?: boolean }) {
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const [height, setHeight] = useState(280)
   const [ready, setReady] = useState(false)
-  const document_ = useMemo(() => artifactDocument(artifact.source), [artifact.source])
+  const firstThemeVars = useMemo(() => themeVarsToCss(collectThemeVars()), [])
+  // Streaming cards coalesce srcdoc re-renders (first paint immediate; then a
+  // 100ms debounce with a 500ms max wait so the frame never lags a token burst).
+  const [renderedSource, setRenderedSource] = useState(artifact.source)
+  const lastRenderAt = useRef(0)
+  const renderTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!streaming) { setRenderedSource(artifact.source); return }
+    const flush = () => {
+      if (renderTimer.current) { clearTimeout(renderTimer.current); renderTimer.current = null }
+      lastRenderAt.current = Date.now()
+      setRenderedSource(artifact.source)
+    }
+    const elapsed = Date.now() - lastRenderAt.current
+    if (elapsed >= RENDER_MAX_WAIT_MS) { flush(); return }
+    if (renderTimer.current) clearTimeout(renderTimer.current)
+    renderTimer.current = setTimeout(flush, Math.min(RENDER_DEBOUNCE_MS, RENDER_MAX_WAIT_MS - elapsed))
+    return () => { if (renderTimer.current) { clearTimeout(renderTimer.current); renderTimer.current = null } }
+  }, [artifact.source, streaming])
+  const document_ = useMemo(() => artifactDocument(renderedSource, firstThemeVars), [renderedSource, firstThemeVars])
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -149,45 +253,81 @@ function ArtifactCard({ artifact }: { artifact: Artifact }) {
     return () => window.removeEventListener('message', onMessage)
   }, [])
 
-  const openStandalone = () => {
-    const url = URL.createObjectURL(new Blob([document_], { type: 'text/html' }))
-    window.open(url, '_blank', 'noopener')
-  }
+  // Theme sync: when the host switches light/dark, push the fresh variables
+  // into the iframe via postMessage instead of rebuilding it, so interactive
+  // state (inputs, counters, animations) survives the switch.
+  useEffect(() => {
+    const postTheme = () => {
+      frameRef.current?.contentWindow?.postMessage({ type: 'generative-ui:theme', vars: collectThemeVars() }, '*')
+    }
+    const observer = new MutationObserver(postTheme)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'data-theme-style', 'style'] })
+    return () => observer.disconnect()
+  }, [])
 
   return (
-    <div style={{ border: '1px solid var(--dsw-alias-border-l1, #ddd)', borderRadius: 12, overflow: 'hidden', background: 'var(--dsw-alias-bg-base, #fff)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderBottom: '1px solid var(--dsw-alias-border-l2, #eee)', background: 'var(--dsw-alias-bg-subtle, #fafafa)' }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'linear-gradient(135deg,#7c5cff,#38bdf8)', flex: 'none' }} />
-        <strong style={{ fontSize: 12, color: 'var(--dsw-alias-label-primary, #1f1f1f)', fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{artifact.title}</strong>
-        {!ready && <span style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary, #999)' }}>渲染中…</span>}
-        <button type="button" onClick={() => setHeight((current) => (current >= MAX_HEIGHT ? 280 : MAX_HEIGHT))} title="展开 / 收起"
-          style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l1, #ddd)', background: 'transparent', color: 'var(--dsw-alias-label-secondary, #666)', cursor: 'pointer' }}>
-          {height >= MAX_HEIGHT ? '收起' : '展开'}
-        </button>
-        <button type="button" onClick={openStandalone} title="在新窗口打开"
-          style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l1, #ddd)', background: 'transparent', color: 'var(--dsw-alias-label-secondary, #666)', cursor: 'pointer' }}>
-          新窗口
-        </button>
-      </div>
-      <iframe
-        ref={frameRef}
-        title={artifact.title}
-        sandbox="allow-scripts"
-        srcDoc={document_}
-        onLoad={() => setReady(true)}
-        style={{ display: 'block', width: '100%', height, border: 0, background: '#fff', opacity: ready ? 1 : 0.4, transition: 'opacity 160ms ease, height 140ms ease' }}
-      />
-    </div>
+    <iframe
+      ref={frameRef}
+      title={artifact.title}
+      sandbox="allow-scripts"
+      srcDoc={document_}
+      onLoad={() => setReady(true)}
+      style={{ display: 'block', width: '100%', height, border: 0, padding: 0, margin: 0, borderRadius: 8, background: 'transparent', opacity: ready ? 1 : 0.4, transition: 'opacity 160ms ease, height 140ms ease' }}
+    />
   )
 }
 
-/** turnTail card: one row per artifact in this turn. */
+/** Hide the rendered ```generative-ui code blocks that duplicate artifacts. */
+export function hideSourceBlocks(root: ParentNode, artifacts: readonly Artifact[]): void {
+  if (artifacts.length === 0) return
+  // Whitespace-insensitive comparison: the markdown renderer may re-indent
+  // or re-wrap the block, so exact text equality is too strict in practice.
+  const flat = (s: string) => s.replace(/\s+/g, '')
+  const sources = artifacts.map((art) => flat(art.source))
+  for (const node of root.querySelectorAll('pre')) {
+    const el = node as HTMLElement
+    if (el.dataset.generativeUiHidden === '1') continue
+    const text = flat(el.textContent ?? '')
+    // Only hide blocks that are a render of one of this turn's artifacts.
+    if (text.length >= 20 && sources.some((source) => text === source)) {
+      el.dataset.generativeUiHidden = '1'
+      el.style.display = 'none'
+    }
+  }
+}
+
+/** turnTail card: one row per artifact in this turn, plus the live streaming tail. */
 function GenerativeUiTurnCard({ turn }: { turn: TurnLike }) {
   const artifacts = readTurnArtifacts(turn)
-  if (artifacts.length === 0) return null
+  const live = readTurnLive(turn)
+  const artifactsKey = artifacts.map((art) => art.id).join(',')
+
+  useEffect(() => {
+    if (artifacts.length === 0) return
+    let frame = 0
+    const sweep = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => hideSourceBlocks(document, artifacts))
+    }
+    sweep()
+    // The markdown render may finish after this card mounts (streaming),
+    // so keep watching until the matching code blocks appear and get hidden.
+    const observer = new MutationObserver(sweep)
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artifactsKey])
+
+  if (artifacts.length === 0 && live === null) return null
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
       {artifacts.map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} />)}
+      {live !== null && (
+        <ArtifactCard key="generative-ui-live" artifact={{ id: 'generative-ui-live', title: '正在生成…', source: live }} streaming />
+      )}
     </div>
   )
 }

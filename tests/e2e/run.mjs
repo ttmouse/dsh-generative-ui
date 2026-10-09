@@ -65,9 +65,9 @@ await page.addInitScript(() => window.addEventListener('message', (e) => {
 await page.goto(`http://127.0.0.1:${port}/`)
 await page.waitForFunction('window.__e2e__ && window.__e2e__.ready')
 
-const card = page.locator('#root > div > div').first()
-check('card mounts', await card.count() === 1)
-check('title extracted', (await page.locator('#root strong').first().textContent()) === 'E2E 计数器')
+const card = page.locator('#root > div > iframe').first()
+check('bare iframe mounts (no card chrome)', await card.count() === 1)
+check('title extracted', (await page.locator('#root iframe').first().getAttribute('title')) === 'E2E 计数器')
 
 const sandbox = await page.locator('#root iframe').getAttribute('sandbox')
 check('iframe sandboxed without same-origin', sandbox === 'allow-scripts', `sandbox="${sandbox}"`)
@@ -80,6 +80,44 @@ check('height report received', heightMessages.some((h) => h >= 30), `heights=${
 const frame = page.frameLocator('#root iframe')
 await frame.locator('#b').click()
 check('artifact interaction works', (await frame.locator('#out').textContent()) === '1')
+
+// Source dedup: a markdown-rendered copy of the artifact source must be hidden.
+await page.evaluate(() => {
+  const pre = document.createElement('pre')
+  pre.textContent = window.__e2e__.artifactSource
+  pre.id = 'fake-rendered-source'
+  document.body.appendChild(pre)
+})
+await page.waitForFunction('document.getElementById("fake-rendered-source").style.display === "none"', null, { timeout: 3000 })
+check('duplicate source code block hidden', true)
+
+// Streaming: feed progressively longer live tails; the live card must grow
+// with debounced srcdoc updates, then disappear once the fence closes.
+await page.evaluate(() => window.__e2e__.mountWithLive('<button id="live">生'))
+check('live card mounts while fence is open', await page.evaluate(() => {
+  const frame = document.querySelector('#root iframe[title="正在生成…"]')
+  return frame !== null && frame.getAttribute('sandbox') === 'allow-scripts'
+}))
+const grew = await page.evaluate(async () => {
+  const seen = []
+  for (const chunk of ['<button id="live">生成中</button>', '<button id="live">生成中 — 更长的一段</button><p>更多内容</p>']) {
+    window.__e2e__.mountWithLive(chunk)
+    await new Promise((r) => setTimeout(r, 180))
+    const frame = document.querySelector('#root iframe[title="正在生成…"]')
+    seen.push(frame ? frame.srcdoc.length : -1)
+  }
+  return seen
+})
+check('live card srcdoc updates with stream', grew.every((v) => v >= 0) && grew[1] > grew[0], `srcdoc lengths=${JSON.stringify(grew)}`)
+await page.evaluate(() => window.__e2e__.mountWithLive(null))
+check('live card clears when fence closes', await page.evaluate(() => document.querySelector('#root iframe[title="正在生成…"]') === null))
+
+// Theme sync: the document carries a theme bootstrap and applies pushed vars.
+const themeBootstrap = await page.evaluate(() => {
+  const frame = document.querySelector('#root iframe')
+  return { hasListener: frame.srcdoc.includes('generative-ui:theme'), inlinesVars: frame.srcdoc.includes(':root{--gui-') }
+})
+check('theme bootstrap present (listener + first-paint vars)', themeBootstrap.hasListener && themeBootstrap.inlinesVars, JSON.stringify(themeBootstrap))
 
 await page.screenshot({ path: path.join(outDir, 'e2e.png'), fullPage: true })
 await browser.close()
