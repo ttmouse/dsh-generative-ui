@@ -124,6 +124,22 @@ export function collectThemeVars(): Record<string, string> {
       if (value) { out[std] = value; break }
     }
   }
+  // Theme sampling fallback: the host may not define any of the mapped
+  // variable names (different theme system, or a plain build). Sample the
+  // host's actual computed background/foreground so artifacts still follow
+  // the host's light/dark mode instead of every artifact defaulting to white.
+  const bodyStyle = getComputedStyle(document.body)
+  if (!out['--gui-bg'] || !out['--gui-fg']) {
+    const probe = document.createElement('div')
+    document.body.appendChild(probe)
+    const probeStyle = getComputedStyle(probe)
+    const bg = bodyStyle.backgroundColor
+    const fg = probeStyle.color || bodyStyle.color
+    probe.remove()
+    const opaque = (c: string) => c && !/rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)/.test(c)
+    if (!out['--gui-bg'] && opaque(bg)) out['--gui-bg'] = bg
+    if (!out['--gui-fg'] && opaque(fg)) out['--gui-fg'] = fg
+  }
   return out
 }
 
@@ -155,7 +171,11 @@ const BOOTSTRAP = `<script>(function(){
 
 /** Build the sandboxed document for one artifact (themeCss inlined for first paint). */
 export function artifactDocument(source: string, themeCss: string = ''): string {
-  const body: string = /<html[\s>]/i.test(source) ? source : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">${themeCss ? `<style>${themeCss}</style>` : ''}</head><body>${source}</body></html>`
+  // Default base: follow the host theme via the injected --gui-* variables,
+  // and let form controls pick up the right scheme. Artifacts that set their
+  // own colors simply override these.
+  const base = '<style>:root{color-scheme:light dark}body{background:var(--gui-bg,transparent);color:var(--gui-fg,#111)}</style>'
+  const body: string = /<html[\s>]/i.test(source) ? source : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">${base}${themeCss ? `<style>${themeCss}</style>` : ''}</head><body>${source}</body></html>`
   return body.includes('</body>') ? body.replace('</body>', `${BOOTSTRAP}</body>`) : body + BOOTSTRAP
 }
 
