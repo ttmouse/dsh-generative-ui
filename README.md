@@ -1,44 +1,62 @@
-# @ttmouse/dsh-generative-ui
+![Two generative-ui cards rendered inline in a DSH chat: a counter and a BMI calculator](screenshot.png)
 
-让 AI 在 DSH 对话流里直接输出**可交互的 HTML 组件**（Generative UI）。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-agent 在回复正文里写一段 fenced code block：
+# dsh-generative-ui
+
+Let the AI output **interactive HTML components** (Generative UI) directly in
+the DSH chat flow.
+
+The agent writes a fenced code block in its reply:
 
 ````md
 ```generative-ui
-<!-- title: 示例：计数器 -->
+<!-- title: Example: counter -->
 <button id="plus">+1</button> <span id="n">0</span>
 <script>let n=0;plus.onclick=()=>{n++;n.textContent=n}</script>
 ```
 ````
 
-插件把这一轮回答里的所有工件提取出来，在该轮消息下方渲染成沙箱卡片：
-内嵌 `<iframe sandbox="allow-scripts">`（无 same-origin），工件可以交互，
-但永远摸不到宿主页面、cookie 和本地存储。
+The plugin extracts every artifact from that turn and renders it as a sandboxed
+card below the message: an `<iframe sandbox="allow-scripts">` (no same-origin)
+— the artifact is fully interactive, but can never touch the host page,
+cookies, or local storage.
 
-## 设计
+## Design
 
-- **纯客户端，零后端，零存储。** 工件就活在会话消息文本里——会话在，工件就在；
-  没有第二份状态，没有同步问题。
-- 宿主半边只做一件事：通过 `systemPrompt.section` 把围栏约定广播给每个 agent。
-- 浏览器半边用 `uiConversation.events` 事件累加器从 `assistant/message` 事件里
-  提取工件（与 dsh-taskboard 的 turn 累加器同款模式），投影到 turn location，
-  再由 `conversation.chat.turnTail` slot 渲染卡片。
-- 高度自适应：注入每个工件的 bootstrap 用 ResizeObserver 向 parent
-  postMessage 报告高度，卡片夹在 120–600px 之间，超出内部滚动。
+- **Pure client-side: no backend, no storage.** Artifacts live in the session
+  message text — the session is the store; there is no second copy of state
+  and nothing to sync.
+- The host half does one thing: broadcast the fenced-block convention to every
+  agent via `systemPrompt.section`.
+- The browser half uses a `uiConversation.events` accumulator to extract
+  artifacts from `assistant/message` events (the same turn-accumulator pattern
+  as dsh-taskboard), projects them onto the turn location, and renders the
+  cards through the `conversation.chat.turnTail` slot.
+- Adaptive height: a bootstrap injected into each artifact reports its height
+  to the parent via ResizeObserver + postMessage; cards are clamped between
+  120–600px and scroll internally beyond that.
 
-## 安装
-
-```sh
-dsh plugin --profile desktop add link:<本目录>
-# 并把 @ttmouse/dsh-generative-ui 加入 profile package.json 的 dsh.profile.bundles
-# 重启桌面 App 生效（宿主半边注册 prompt section；client.js 按请求读盘）
-```
-
-## 开发
+## Install
 
 ```sh
-npm install && npm run build   # 产出 lib/client.js + lib/index.mjs
+dsh plugin --profile desktop add link:<this-directory>
+# and add @ttmouse/dsh-generative-ui to dsh.profile.bundles in the profile
+# package.json; restart the desktop app (the host half registers the prompt
+# section; client.js is read from disk per request)
 ```
 
-改客户端：刷新页面即生效；改宿主半边（systemPrompt 文案）：重启 App。
+## Develop
+
+```sh
+npm install && npm run build       # produces lib/client.js + lib/index.mjs
+npm test                           # unit + e2e (headless Chromium)
+npm run screenshot                 # regenerate screenshot.png from the real client
+```
+
+Client changes take effect on page refresh; host-half changes (the
+system-prompt text) need an app restart.
+
+## License
+
+MIT
