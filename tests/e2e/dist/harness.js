@@ -12158,8 +12158,11 @@
   var TURN_KEY = "generative-ui";
   var FENCE_RE = /```generative-ui[^\n]*\n([\s\S]*?)```/g;
   var TITLE_RE = /<!--\s*title:\s*(.+?)\s*-->/;
+  var FENCE_MARKER = "```generative-ui";
   var MAX_HEIGHT = 600;
   var MIN_HEIGHT = 120;
+  var RENDER_DEBOUNCE_MS = 100;
+  var RENDER_MAX_WAIT_MS = 500;
   function hashSource(source) {
     let hash = 5381;
     for (let i = 0; i < source.length; i += 1) hash = (hash << 5) + hash + source.charCodeAt(i) | 0;
@@ -12171,11 +12174,95 @@
     for (const match of text.matchAll(FENCE_RE)) {
       const source = match[1];
       if (!source.trim()) continue;
-      const title = source.match(TITLE_RE)?.[1] ?? `\u5DE5\u4EF6 #${artifacts.length + 1}`;
-      artifacts.push({ id: hashSource(source), title: title.slice(0, 60), source });
+      const title = source.match(TITLE_RE)?.[1];
+      const cleanTitle = title?.trim() ? title.trim().slice(0, 60) : `\u5DE5\u4EF6 #${artifacts.length + 1}`;
+      artifacts.push({ id: hashSource(source), title: cleanTitle, source });
     }
     return artifacts;
   }
+  function extractStreamingTail(text) {
+    if (typeof text !== "string") return null;
+    const start = text.lastIndexOf(FENCE_MARKER);
+    if (start === -1) return null;
+    const rest = text.slice(start + FENCE_MARKER.length);
+    if (rest.includes("```")) return null;
+    const newline = rest.indexOf("\n");
+    const source = newline === -1 ? "" : rest.slice(newline + 1);
+    return source.trim() ? source : null;
+  }
+  var HOST_VAR_MAP = {
+    "--gui-bg": ["--dsw-alias-bg-base", "--dsw-alias-bg-layer-1", "--background"],
+    "--gui-bg-soft": ["--dsw-alias-bg-layer-2", "--dsw-alias-bg-secondary"],
+    "--gui-fg": ["--dsw-alias-label-primary", "--foreground"],
+    "--gui-fg-dim": ["--dsw-alias-label-secondary", "--muted-foreground"],
+    "--gui-border": ["--dsw-alias-border-l1", "--border"],
+    "--gui-accent": ["--dsw-alias-brand-primary", "--dsw-alias-accent", "--accent", "#3b82f6"]
+  };
+  function collectThemeVars() {
+    const out = {};
+    if (typeof document === "undefined" || typeof getComputedStyle !== "function") return out;
+    const style = getComputedStyle(document.documentElement);
+    for (const [std, hosts] of Object.entries(HOST_VAR_MAP)) {
+      for (const host of hosts) {
+        const value = host.startsWith("#") ? host : style.getPropertyValue(host).trim();
+        if (value) {
+          out[std] = value;
+          break;
+        }
+      }
+    }
+    const bodyStyle = getComputedStyle(document.body);
+    if (!out["--gui-bg"] || !out["--gui-fg"]) {
+      const probe = document.createElement("div");
+      document.body.appendChild(probe);
+      const probeStyle = getComputedStyle(probe);
+      const bg = bodyStyle.backgroundColor;
+      const fg = probeStyle.color || bodyStyle.color;
+      probe.remove();
+      const opaque = (c) => c && !/rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)/.test(c);
+      if (!out["--gui-bg"] && opaque(bg)) out["--gui-bg"] = bg;
+      if (!out["--gui-fg"] && opaque(fg)) out["--gui-fg"] = fg;
+    }
+    return out;
+  }
+  function themeVarsToCss(vars) {
+    const decls = Object.entries(vars).map(([k, v]) => `${k}:${v}`);
+    return decls.length > 0 ? `:root{${decls.join(";")}}` : "";
+  }
+  var DESIGN_SYSTEM_CSS = `:root{
+color-scheme:light dark;
+--gui-surface-1:rgba(127,127,127,.055);
+--gui-surface-2:rgba(127,127,127,.085);
+--gui-surface-3:rgba(127,127,127,.12);
+--gui-surface-1:color-mix(in srgb,var(--gui-fg) 5%,var(--gui-bg));
+--gui-surface-2:color-mix(in srgb,var(--gui-fg) 8%,var(--gui-bg));
+--gui-surface-3:color-mix(in srgb,var(--gui-fg) 12%,var(--gui-bg));
+--gui-tint:rgba(127,127,127,.12);
+--gui-tint:color-mix(in srgb,var(--gui-accent) 12%,transparent);
+--gui-tint-strong:rgba(127,127,127,.2);
+--gui-tint-strong:color-mix(in srgb,var(--gui-accent) 20%,transparent);
+--gui-radius:12px;
+--gui-gap:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0!important;padding:0!important}
+body{background:var(--gui-bg,transparent);color:var(--gui-fg,#111);
+font:14px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",system-ui,sans-serif;
+-webkit-font-smoothing:antialiased}
+.gui-stack{display:flex;flex-direction:column;gap:var(--gui-gap)}
+.gui-section{padding:14px 16px;border:0;border-radius:var(--gui-radius);background:var(--gui-surface-1)}
+.gui-section--tint{background:var(--gui-surface-2)}
+.gui-card{padding:9px 11px;border:0;border-radius:10px;background:var(--gui-surface-1)}
+.gui-tint{padding:9px 12px;border:0;border-radius:8px;background:var(--gui-tint)}
+.gui-label{margin:0 0 9px;font-size:11px;font-weight:650;letter-spacing:.1em;color:var(--gui-fg-dim)}
+.gui-title{margin:0;font-size:13.5px;font-weight:650}
+.gui-desc{margin:2px 0 0;font-size:12.5px;line-height:1.7;color:var(--gui-fg-dim)}
+.gui-note{margin:0;font-size:12px;line-height:1.75;color:var(--gui-fg-dim)}
+.gui-chip{display:inline-block;padding:2px 11px;border-radius:999px;font-size:12.5px;background:var(--gui-surface-2)}
+.gui-chip--on{background:var(--gui-tint-strong);font-weight:600}
+.gui-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
+padding:1px 5px;border-radius:5px;background:var(--gui-surface-3)}`;
   var BOOTSTRAP = `<script>(function(){
   var last=0;
   function report(){
@@ -12184,10 +12271,25 @@
   }
   new ResizeObserver(report).observe(document.documentElement);
   window.addEventListener("load",report);report();
+  window.addEventListener("message",function(e){
+    if(e.source!==parent)return;
+    var d=e.data;
+    if(d&&d.type==="generative-ui:theme"&&d.vars){
+      var r=document.documentElement;
+      for(var k in d.vars){if(k.indexOf("--")===0)r.style.setProperty(k,String(d.vars[k]))}
+      report();
+    }
+  });
 })()<\/script>`;
-  function artifactDocument(source) {
-    const body = /<html[\s>]/i.test(source) ? source : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head><body>${source}</body></html>`;
-    return body.includes("</body>") ? body.replace("</body>", `${BOOTSTRAP}</body>`) : body + BOOTSTRAP;
+  function artifactDocument(source, themeCss = "") {
+    const design = `<style>${DESIGN_SYSTEM_CSS}</style>${themeCss ? `<style>${themeCss}</style>` : ""}`;
+    let doc;
+    if (/<html[\s>]/i.test(source)) {
+      doc = /<\/head>/i.test(source) ? source.replace(/<\/head>/i, `${design}</head>`) : source.replace(/<html([^>]*)>/i, `<html$1><head>${design}</head>`);
+    } else {
+      doc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">${design}</head><body>${source}</body></html>`;
+    }
+    return doc.includes("</body>") ? doc.replace("</body>", `${BOOTSTRAP}</body>`) : doc + BOOTSTRAP;
   }
   var generativeUiTurnDefinition = {
     kind: TURN_KEY,
@@ -12197,23 +12299,28 @@
       return null;
     },
     start(_context, match) {
-      return { turn: match.event.data?.turn, arts: [] };
+      return { turn: match.event.data?.turn, arts: [], liveSource: null };
     },
     update(context, match) {
       if (context.state === void 0 || match.event.type !== "assistant/message") return context.state;
       const blocks = match.event.data?.message?.content;
       const texts = Array.isArray(blocks) ? blocks.filter((block) => block?.type === "text" && typeof block.text === "string").map((block) => block.text) : [];
-      const arts = texts.flatMap(extractArtifacts);
-      if (arts.length === 0) return context.state;
+      const joined = texts.join("\n");
+      const arts = extractArtifacts(joined);
+      const liveSource = extractStreamingTail(joined);
+      if (arts.length === 0 && liveSource === null) return context.state;
       const known = new Set(context.state.arts.map((art) => art.id));
       const merged = [...context.state.arts, ...arts.filter((art) => !known.has(art.id))];
-      return merged === context.state.arts ? context.state : { ...context.state, arts: merged };
+      const liveChanged = (context.state.liveSource ?? null) !== liveSource;
+      if (merged === context.state.arts && !liveChanged) return context.state;
+      return { ...context.state, arts: merged, liveSource };
     },
     buildLocationData(context, scope, previous) {
-      if (scope !== "turn" || context.state === void 0 || context.state.arts.length === 0) return null;
+      if (scope !== "turn" || context.state === void 0 || context.state.arts.length === 0 && (context.state.liveSource ?? null) === null) return null;
       const state2 = context.state;
-      if (previous?.kind === "turn" && previous.turn === state2.turn && previous.key === TURN_KEY && previous.value?.arts === state2.arts) return previous;
-      return { kind: "turn", turn: state2.turn, key: TURN_KEY, value: { arts: state2.arts } };
+      const live = state2.liveSource ?? null;
+      if (previous?.kind === "turn" && previous.turn === state2.turn && previous.key === TURN_KEY && previous.value?.arts === state2.arts && previous.value?.live === live) return previous;
+      return { kind: "turn", turn: state2.turn, key: TURN_KEY, value: { arts: state2.arts, live } };
     }
   };
   function readTurnArtifacts(turn2) {
@@ -12221,11 +12328,47 @@
     const value = data === null || data === void 0 ? void 0 : typeof data.get === "function" ? data.get(TURN_KEY) : data instanceof Map ? data.get(TURN_KEY) : void 0;
     return Array.isArray(value?.arts) ? value.arts : [];
   }
-  function ArtifactCard({ artifact }) {
+  function readTurnLive(turn2) {
+    const data = turn2?.data;
+    const value = data === null || data === void 0 ? void 0 : typeof data.get === "function" ? data.get(TURN_KEY) : data instanceof Map ? data.get(TURN_KEY) : void 0;
+    return typeof value?.live === "string" && value.live ? value.live : null;
+  }
+  function ArtifactCard({ artifact, streaming = false }) {
     const frameRef = (0, import_react.useRef)(null);
     const [height, setHeight] = (0, import_react.useState)(280);
     const [ready, setReady] = (0, import_react.useState)(false);
-    const document_ = (0, import_react.useMemo)(() => artifactDocument(artifact.source), [artifact.source]);
+    const firstThemeVars = (0, import_react.useMemo)(() => themeVarsToCss(collectThemeVars()), []);
+    const [renderedSource, setRenderedSource] = (0, import_react.useState)(artifact.source);
+    const lastRenderAt = (0, import_react.useRef)(0);
+    const renderTimer = (0, import_react.useRef)(null);
+    (0, import_react.useEffect)(() => {
+      if (!streaming) {
+        setRenderedSource(artifact.source);
+        return;
+      }
+      const flush = () => {
+        if (renderTimer.current) {
+          clearTimeout(renderTimer.current);
+          renderTimer.current = null;
+        }
+        lastRenderAt.current = Date.now();
+        setRenderedSource(artifact.source);
+      };
+      const elapsed = Date.now() - lastRenderAt.current;
+      if (elapsed >= RENDER_MAX_WAIT_MS) {
+        flush();
+        return;
+      }
+      if (renderTimer.current) clearTimeout(renderTimer.current);
+      renderTimer.current = setTimeout(flush, Math.min(RENDER_DEBOUNCE_MS, RENDER_MAX_WAIT_MS - elapsed));
+      return () => {
+        if (renderTimer.current) {
+          clearTimeout(renderTimer.current);
+          renderTimer.current = null;
+        }
+      };
+    }, [artifact.source, streaming]);
+    const document_ = (0, import_react.useMemo)(() => artifactDocument(renderedSource, firstThemeVars), [renderedSource, firstThemeVars]);
     (0, import_react.useEffect)(() => {
       function onMessage(event) {
         if (event.source !== frameRef.current?.contentWindow) return;
@@ -12236,53 +12379,64 @@
       window.addEventListener("message", onMessage);
       return () => window.removeEventListener("message", onMessage);
     }, []);
-    const openStandalone = () => {
-      const url = URL.createObjectURL(new Blob([document_], { type: "text/html" }));
-      window.open(url, "_blank", "noopener");
-    };
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { border: "1px solid var(--dsw-alias-border-l1, #ddd)", borderRadius: 12, overflow: "hidden", background: "var(--dsw-alias-bg-base, #fff)", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderBottom: "1px solid var(--dsw-alias-border-l2, #eee)", background: "var(--dsw-alias-bg-subtle, #fafafa)" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "linear-gradient(135deg,#7c5cff,#38bdf8)", flex: "none" } }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { style: { fontSize: 12, color: "var(--dsw-alias-label-primary, #1f1f1f)", fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: artifact.title }),
-        !ready && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #999)" }, children: "\u6E32\u67D3\u4E2D\u2026" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          "button",
-          {
-            type: "button",
-            onClick: () => setHeight((current) => current >= MAX_HEIGHT ? 280 : MAX_HEIGHT),
-            title: "\u5C55\u5F00 / \u6536\u8D77",
-            style: { fontSize: 11, padding: "2px 8px", borderRadius: 6, border: "1px solid var(--dsw-alias-border-l1, #ddd)", background: "transparent", color: "var(--dsw-alias-label-secondary, #666)", cursor: "pointer" },
-            children: height >= MAX_HEIGHT ? "\u6536\u8D77" : "\u5C55\u5F00"
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          "button",
-          {
-            type: "button",
-            onClick: openStandalone,
-            title: "\u5728\u65B0\u7A97\u53E3\u6253\u5F00",
-            style: { fontSize: 11, padding: "2px 8px", borderRadius: 6, border: "1px solid var(--dsw-alias-border-l1, #ddd)", background: "transparent", color: "var(--dsw-alias-label-secondary, #666)", cursor: "pointer" },
-            children: "\u65B0\u7A97\u53E3"
-          }
-        )
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "iframe",
-        {
-          ref: frameRef,
-          title: artifact.title,
-          sandbox: "allow-scripts",
-          srcDoc: document_,
-          onLoad: () => setReady(true),
-          style: { display: "block", width: "100%", height, border: 0, background: "#fff", opacity: ready ? 1 : 0.4, transition: "opacity 160ms ease, height 140ms ease" }
-        }
-      )
-    ] });
+    (0, import_react.useEffect)(() => {
+      const postTheme = () => {
+        frameRef.current?.contentWindow?.postMessage({ type: "generative-ui:theme", vars: collectThemeVars() }, "*");
+      };
+      const observer = new MutationObserver(postTheme);
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme", "data-theme-style", "style"] });
+      return () => observer.disconnect();
+    }, []);
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      "iframe",
+      {
+        ref: frameRef,
+        title: artifact.title,
+        sandbox: "allow-scripts",
+        srcDoc: document_,
+        onLoad: () => setReady(true),
+        style: { display: "block", width: "100%", height, border: 0, padding: 0, margin: 0, borderRadius: 8, background: "transparent", opacity: ready ? 1 : 0.4, transition: "opacity 160ms ease, height 140ms ease" }
+      }
+    );
+  }
+  function hideSourceBlocks(root, artifacts) {
+    if (artifacts.length === 0) return;
+    const flat = (s) => s.replace(/\s+/g, "");
+    const sources = artifacts.map((art) => flat(art.source));
+    for (const node of root.querySelectorAll("pre")) {
+      const el = node;
+      if (el.dataset.generativeUiHidden === "1") continue;
+      const text = flat(el.textContent ?? "");
+      if (text.length >= 20 && sources.some((source) => text === source)) {
+        el.dataset.generativeUiHidden = "1";
+        el.style.display = "none";
+      }
+    }
   }
   function GenerativeUiTurnCard({ turn: turn2 }) {
     const artifacts = readTurnArtifacts(turn2);
-    if (artifacts.length === 0) return null;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }, children: artifacts.map((artifact) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArtifactCard, { artifact }, artifact.id)) });
+    const live = readTurnLive(turn2);
+    const artifactsKey = artifacts.map((art) => art.id).join(",");
+    (0, import_react.useEffect)(() => {
+      if (artifacts.length === 0) return;
+      let frame = 0;
+      const sweep = () => {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => hideSourceBlocks(document, artifacts));
+      };
+      sweep();
+      const observer = new MutationObserver(sweep);
+      observer.observe(document.body, { childList: true, subtree: true });
+      return () => {
+        cancelAnimationFrame(frame);
+        observer.disconnect();
+      };
+    }, [artifactsKey]);
+    if (artifacts.length === 0 && live === null) return null;
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }, children: [
+      artifacts.map((artifact) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArtifactCard, { artifact }, artifact.id)),
+      live !== null && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArtifactCard, { artifact: { id: "generative-ui-live", title: "\u6B63\u5728\u751F\u6210\u2026", source: live }, streaming: true }, "generative-ui-live")
+    ] });
   }
   function apply(ctx2) {
     ctx2.effect(
@@ -12358,10 +12512,17 @@
   var located = registeredDefinition.buildLocationData({ state }, "turn", null);
   if (!located || located.value.arts.length !== 1) throw new Error("accumulator did not project the artifact");
   var container = document.getElementById("root");
-  var turn = { data: /* @__PURE__ */ new Map([["generative-ui", { arts: located.value.arts }]]) };
+  var turn = { data: /* @__PURE__ */ new Map([["generative-ui", { arts: located.value.arts, live: null }]]) };
   var [{ component }] = turnTailComponents;
   (0, import_client.createRoot)(container).render((0, import_react2.createElement)(component, { turn }));
-  window.__e2e__ = { ready: true };
+  window.__e2e__ = {
+    ready: true,
+    artifactSource: located.value.arts[0].source,
+    mountWithLive: (liveSource) => {
+      const liveTurn = { data: /* @__PURE__ */ new Map([["generative-ui", { arts: located.value.arts, live: liveSource }]]) };
+      (0, import_client.createRoot)(container).render((0, import_react2.createElement)(component, { turn: liveTurn }));
+    }
+  };
 })();
 /*! Bundled license information:
 

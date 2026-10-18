@@ -31,6 +31,18 @@ agent 在回复正文里写一段 fenced code block：
 - 高度自适应：注入每个工件的 bootstrap 用 ResizeObserver 向 parent
   postMessage 报告高度，卡片夹在 120–600px 之间，超出内部滚动。
 
+## 版面约束
+
+工件是裸的 iframe 文档：没有字体、没有间距重置、没有底色。插件的每个工件文档都会在 `<head>` 注入一份设计系统（`DESIGN_SYSTEM_CSS`），把「有约束地生成」落到运行时，而不是只写在提示词里：
+
+- **分层靠底色，不靠描边。** `--gui-surface-1/2/3` 是由浅到深的三层底面，`--gui-tint` / `--gui-tint-strong` 是强调色淡底；分区不再用 1px border。
+- **外边距强制归零。** `html,body{margin:0!important;padding:0!important}`，工件与对话正文左对齐，间距由内层区块承担。
+- **自带排版基线。** 系统字体栈、14px/1.7、11–17px 字号档位，避免落到浏览器默认衬线字体。
+- **工具类**：`.gui-stack` `.gui-section` `.gui-section--tint` `.gui-card` `.gui-tint` `.gui-chip` `.gui-chip--on` `.gui-label` `.gui-title` `.gui-desc` `.gui-note` `.gui-grid`。
+- **审计**：`auditArtifactSource(source)` 返回违反项（`border` / `shadow` / `gradient` / `blur` / `body-spacing` / `comment`），只提示不拦截。
+
+同一套规则以文字形式写进 systemPrompt（`GENERATIVE_UI_GUIDANCE`），模型在生成时即可遵守。
+
 ## 安装
 
 ```sh

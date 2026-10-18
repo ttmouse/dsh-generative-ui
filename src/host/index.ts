@@ -18,6 +18,9 @@ export const GENERATIVE_UI_GUIDANCE = [
   '本机已安装 dsh-generative-ui 插件：你可以在回复正文中用 ```generative-ui 围栏输出自包含的 HTML 文档，DSH 会在该轮回答下方把它渲染成一个沙箱化的可交互组件（Generative UI），用户无需离开对话即可操作。',
   '规则：内容必须是单个自包含 HTML（内联 style/script，不引用外部网络资源）；脚本运行在 sandbox="allow-scripts" 的 iframe 里，无法访问宿主页面、cookie 或本地存储，所以不要在其中放置凭据或敏感数据；如需高度自适应，脚本可向 parent postMessage {type:"generative-ui:height", height:像素}（插件已内置自动上报，一般无需手写）。',
   '适用场景：数据看板小卡、交互式演示、表单原型、可视化对比、小型计算器/换算器。不适用：需要持久化或真实后端数据的场景。围栏语言标记必须恰好是 generative-ui；可在围栏首行写 <!-- title: 标题 --> 自定义卡片标题。',
+  '流式渲染：围栏未闭合时插件就会把已到达的部分渐进渲染成卡片（边写边长出来）。为让流式体验稳定：HTML 里不要写注释（浪费 token 且流式期间可见）；避免渐变、阴影、模糊动画（流式 DOM 差异会闪烁），用纯色平涂；可见性切换（tab/折叠）不要依赖 display:none，等围栏闭合后的脚本再做；脚本放围栏尾部。',
+  '主题跟随：卡片会用 CSS 变量 --gui-bg / --gui-bg-soft / --gui-fg / --gui-fg-dim / --gui-border / --gui-accent 注入宿主当前主题色，并随宿主明暗切换自动更新。想让组件跟随主题就用这些变量（如 body{background:var(--gui-bg);color:var(--gui-fg)}）；想固定自己的配色也可以，两者都有效。',
+  '版面约束（工件直接嵌在对话正文里，必须跟正文左对齐、层级清楚）：① 分区用背景色分层，不要用 border 描边（表格行、极少数必要分隔除外）；② 不要给 body/html 写 margin 或 padding——插件已强制归零，外间距由内层区块承担；③ 优先用插件已注入的令牌与工具类：色阶 --gui-surface-1/2/3（由浅到深）、强调淡底 --gui-tint / --gui-tint-strong、--gui-radius(12px) / --gui-gap(10px)，类名 .gui-stack / .gui-section / .gui-section--tint / .gui-card / .gui-tint / .gui-chip / .gui-chip--on / .gui-label / .gui-title / .gui-desc / .gui-note / .gui-grid；④ 字号从 11 / 12 / 12.5 / 13.5 / 17px 里选，行高 1.7，块间距 8–14px；⑤ 不用渐变、阴影、模糊（流式重渲染会闪）。违反不会报错，但版面会明显比别的卡片散乱。',
 ].join('\n')
 
 export const inject = ['systemPrompt']

@@ -37,6 +37,18 @@ cookies, or local storage.
   to the parent via ResizeObserver + postMessage; cards are clamped between
   120–600px and scroll internally beyond that.
 
+## Layout constraints
+
+An artifact is a bare iframe document: no font, no spacing reset, no surface. Every artifact document therefore gets a design system inlined into `<head>` (`DESIGN_SYSTEM_CSS`), so constrained generation is enforced at runtime rather than merely requested in the prompt:
+
+- **Separate regions with surfaces, not borders.** `--gui-surface-1/2/3` is a three-step surface ramp; `--gui-tint` / `--gui-tint-strong` are accent washes.
+- **Outer spacing is reset.** `html,body{margin:0!important;padding:0!important}` keeps artifacts flush with the message column; inner blocks own their spacing.
+- **A typography baseline.** System font stack, 14px/1.7, an 11–17px size scale — no browser-default serif.
+- **Utilities**: `.gui-stack` `.gui-section` `.gui-section--tint` `.gui-card` `.gui-tint` `.gui-chip` `.gui-chip--on` `.gui-label` `.gui-title` `.gui-desc` `.gui-note` `.gui-grid`.
+- **Audit**: `auditArtifactSource(source)` reports violations (`border` / `shadow` / `gradient` / `blur` / `body-spacing` / `comment`) without blocking the render.
+
+The same rules travel to the model as text in `GENERATIVE_UI_GUIDANCE`.
+
 ## Install
 
 ```sh

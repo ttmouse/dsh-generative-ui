@@ -149,6 +149,70 @@ export function themeVarsToCss(vars: Record<string, string>): string {
   return decls.length > 0 ? `:root{${decls.join(';')}}` : ''
 }
 
+/**
+ * Design constraints every artifact inherits. An artifact document is a bare
+ * iframe body: nothing else supplies a base font, a spacing reset, or neutral
+ * surfaces, so without this the model's markup renders in the browser's
+ * default serif on a hard sheet and regions separate only by 1px borders.
+ *
+ * Layering rule: regions separate with surface fills (--gui-surface-1/2/3 and
+ * --gui-tint), never with borders. The host renders artifacts flush with the
+ * message column, so the document must not add its own outer spacing.
+ */
+export const DESIGN_SYSTEM_CSS = `:root{
+color-scheme:light dark;
+--gui-surface-1:rgba(127,127,127,.055);
+--gui-surface-2:rgba(127,127,127,.085);
+--gui-surface-3:rgba(127,127,127,.12);
+--gui-surface-1:color-mix(in srgb,var(--gui-fg) 5%,var(--gui-bg));
+--gui-surface-2:color-mix(in srgb,var(--gui-fg) 8%,var(--gui-bg));
+--gui-surface-3:color-mix(in srgb,var(--gui-fg) 12%,var(--gui-bg));
+--gui-tint:rgba(127,127,127,.12);
+--gui-tint:color-mix(in srgb,var(--gui-accent) 12%,transparent);
+--gui-tint-strong:rgba(127,127,127,.2);
+--gui-tint-strong:color-mix(in srgb,var(--gui-accent) 20%,transparent);
+--gui-radius:12px;
+--gui-gap:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0!important;padding:0!important}
+body{background:var(--gui-bg,transparent);color:var(--gui-fg,#111);
+font:14px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",system-ui,sans-serif;
+-webkit-font-smoothing:antialiased}
+.gui-stack{display:flex;flex-direction:column;gap:var(--gui-gap)}
+.gui-section{padding:14px 16px;border:0;border-radius:var(--gui-radius);background:var(--gui-surface-1)}
+.gui-section--tint{background:var(--gui-surface-2)}
+.gui-card{padding:9px 11px;border:0;border-radius:10px;background:var(--gui-surface-1)}
+.gui-tint{padding:9px 12px;border:0;border-radius:8px;background:var(--gui-tint)}
+.gui-label{margin:0 0 9px;font-size:11px;font-weight:650;letter-spacing:.1em;color:var(--gui-fg-dim)}
+.gui-title{margin:0;font-size:13.5px;font-weight:650}
+.gui-desc{margin:2px 0 0;font-size:12.5px;line-height:1.7;color:var(--gui-fg-dim)}
+.gui-note{margin:0;font-size:12px;line-height:1.75;color:var(--gui-fg-dim)}
+.gui-chip{display:inline-block;padding:2px 11px;border-radius:999px;font-size:12.5px;background:var(--gui-surface-2)}
+.gui-chip--on{background:var(--gui-tint-strong);font-weight:600}
+.gui-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
+padding:1px 5px;border-radius:5px;background:var(--gui-surface-3)}`
+
+/**
+ * Report the design constraints an artifact source breaks. Advisory only: the
+ * document already inherits the reset, surfaces and font, so a violation costs
+ * visual coherence, never correctness.
+ * @param source - raw artifact HTML as written by the model.
+ * @returns stable violation codes, empty when the source follows the rules.
+ */
+export function auditArtifactSource(source: string): string[] {
+  const issues: string[] = []
+  if (/\bborder\s*:\s*(?!0\b|none\b)/i.test(source)) issues.push('border')
+  if (/\bbox-shadow\s*:|text-shadow\s*:/i.test(source)) issues.push('shadow')
+  if (/linear-gradient\(|radial-gradient\(/i.test(source)) issues.push('gradient')
+  if (/backdrop-filter\s*:|filter\s*:\s*blur\(/i.test(source)) issues.push('blur')
+  if (/body\s*\{[^}]*(?:margin|padding)\s*:\s*(?!0\b)/i.test(source)) issues.push('body-spacing')
+  else if (/<body[^>]*style="[^"]*(?:margin|padding)\s*:\s*(?!0\b)/i.test(source)) issues.push('body-spacing')
+  if (source.includes('<!--')) issues.push('comment')
+  return issues
+}
+
 /** Height + theme bootstrap injected into every artifact document. */
 const BOOTSTRAP = `<script>(function(){
   var last=0;
@@ -169,14 +233,28 @@ const BOOTSTRAP = `<script>(function(){
   });
 })()</script>`
 
-/** Build the sandboxed document for one artifact (themeCss inlined for first paint). */
+/**
+ * Build the sandboxed document for one artifact.
+ *
+ * The design system lands in `<head>` before the artifact's own markup, so an
+ * artifact that sets its own colors overrides it while everything it does not
+ * set (font, reset, surfaces, chip/section utilities) inherits the shared
+ * baseline. Full documents keep their own head.
+ * @param source - raw artifact HTML.
+ * @param themeCss - host theme variables inlined for first paint.
+ * @returns a complete HTML document with the height bootstrap appended.
+ */
 export function artifactDocument(source: string, themeCss: string = ''): string {
-  // Default base: follow the host theme via the injected --gui-* variables,
-  // and let form controls pick up the right scheme. Artifacts that set their
-  // own colors simply override these.
-  const base = '<style>:root{color-scheme:light dark}body{background:var(--gui-bg,transparent);color:var(--gui-fg,#111)}</style>'
-  const body: string = /<html[\s>]/i.test(source) ? source : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">${base}${themeCss ? `<style>${themeCss}</style>` : ''}</head><body>${source}</body></html>`
-  return body.includes('</body>') ? body.replace('</body>', `${BOOTSTRAP}</body>`) : body + BOOTSTRAP
+  const design = `<style>${DESIGN_SYSTEM_CSS}</style>${themeCss ? `<style>${themeCss}</style>` : ''}`
+  let doc: string
+  if (/<html[\s>]/i.test(source)) {
+    doc = /<\/head>/i.test(source)
+      ? source.replace(/<\/head>/i, `${design}</head>`)
+      : source.replace(/<html([^>]*)>/i, `<html$1><head>${design}</head>`)
+  } else {
+    doc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">${design}</head><body>${source}</body></html>`
+  }
+  return doc.includes('</body>') ? doc.replace('</body>', `${BOOTSTRAP}</body>`) : doc + BOOTSTRAP
 }
 
 /** The turn accumulator: assistant text → per-turn artifact list. */
