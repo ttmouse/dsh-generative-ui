@@ -12232,37 +12232,52 @@
   var DESIGN_SYSTEM_CSS = `:root{
 color-scheme:light dark;
 --gui-surface-1:rgba(127,127,127,.055);
---gui-surface-2:rgba(127,127,127,.085);
---gui-surface-3:rgba(127,127,127,.12);
+--gui-surface-2:rgba(127,127,127,.09);
+--gui-surface-3:rgba(127,127,127,.14);
 --gui-surface-1:color-mix(in srgb,var(--gui-fg) 5%,var(--gui-bg));
---gui-surface-2:color-mix(in srgb,var(--gui-fg) 8%,var(--gui-bg));
---gui-surface-3:color-mix(in srgb,var(--gui-fg) 12%,var(--gui-bg));
+--gui-surface-2:color-mix(in srgb,var(--gui-fg) 9%,var(--gui-bg));
+--gui-surface-3:color-mix(in srgb,var(--gui-fg) 14%,var(--gui-bg));
 --gui-tint:rgba(127,127,127,.12);
 --gui-tint:color-mix(in srgb,var(--gui-accent) 12%,transparent);
 --gui-tint-strong:rgba(127,127,127,.2);
 --gui-tint-strong:color-mix(in srgb,var(--gui-accent) 20%,transparent);
 --gui-radius:12px;
---gui-gap:10px;
+--gui-radius-sm:8px;
+--gui-gap:12px;
+--gui-pad:16px;
+--gui-fs-title:18px;
+--gui-fs-body:14px;
+--gui-fs-caption:12px;
+--gui-ease:cubic-bezier(.23,1,.32,1);
 }
 *{box-sizing:border-box}
 html,body{margin:0!important;padding:0!important}
 body{background:var(--gui-bg,transparent);color:var(--gui-fg,#111);
-font:14px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",system-ui,sans-serif;
--webkit-font-smoothing:antialiased}
+font:var(--gui-fs-body)/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",system-ui,sans-serif;
+-webkit-font-smoothing:antialiased;text-wrap:pretty}
 .gui-stack{display:flex;flex-direction:column;gap:var(--gui-gap)}
-.gui-section{padding:14px 16px;border:0;border-radius:var(--gui-radius);background:var(--gui-surface-1)}
+.gui-section{padding:var(--gui-pad);border:0;border-radius:var(--gui-radius);background:var(--gui-surface-1)}
 .gui-section--tint{background:var(--gui-surface-2)}
-.gui-card{padding:9px 11px;border:0;border-radius:10px;background:var(--gui-surface-1)}
-.gui-tint{padding:9px 12px;border:0;border-radius:8px;background:var(--gui-tint)}
-.gui-label{margin:0 0 9px;font-size:11px;font-weight:650;letter-spacing:.1em;color:var(--gui-fg-dim)}
-.gui-title{margin:0;font-size:13.5px;font-weight:650}
-.gui-desc{margin:2px 0 0;font-size:12.5px;line-height:1.7;color:var(--gui-fg-dim)}
-.gui-note{margin:0;font-size:12px;line-height:1.75;color:var(--gui-fg-dim)}
-.gui-chip{display:inline-block;padding:2px 11px;border-radius:999px;font-size:12.5px;background:var(--gui-surface-2)}
+.gui-card{padding:12px 14px;border:0;border-radius:var(--gui-radius-sm);background:var(--gui-surface-1)}
+.gui-tint{padding:12px 14px;border:0;border-radius:var(--gui-radius-sm);background:var(--gui-tint)}
+.gui-label{margin:0 0 8px;font-size:var(--gui-fs-body);font-weight:650;color:var(--gui-fg)}
+.gui-title{margin:0;font-size:var(--gui-fs-title);font-weight:650;line-height:1.25;letter-spacing:-.01em;text-wrap:balance}
+.gui-desc{margin:4px 0 0;font-size:var(--gui-fs-body);line-height:1.6;color:var(--gui-fg-dim)}
+.gui-note{margin:0;font-size:var(--gui-fs-caption);line-height:1.7;color:var(--gui-fg-dim)}
+.gui-chip{display:inline-block;padding:3px 11px;border-radius:999px;font-size:var(--gui-fs-caption);background:var(--gui-surface-2)}
 .gui-chip--on{background:var(--gui-tint-strong);font-weight:600}
-.gui-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
-padding:1px 5px;border-radius:5px;background:var(--gui-surface-3)}`;
+.gui-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--gui-gap)}
+button{min-height:38px;padding:0 14px;border:0;border-radius:var(--gui-radius-sm);
+background:var(--gui-accent);color:var(--gui-bg);font:inherit;font-weight:600;cursor:pointer;
+transition:transform .16s var(--gui-ease),opacity .16s var(--gui-ease)}
+button:active{transform:scale(.97)}
+button:focus-visible{outline:2px solid var(--gui-accent);outline-offset:2px}
+button:disabled{opacity:.5;cursor:not-allowed}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+padding:1px 5px;border-radius:5px;background:var(--gui-surface-3)}
+@media (pointer:coarse){button{min-height:44px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+`;
   var BOOTSTRAP = `<script>(function(){
   var last=0;
   function report(){

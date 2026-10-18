@@ -101,7 +101,8 @@ test('themeVarsToCss serializes non-empty maps and skips empty ones', () => {
 test('artifactDocument injects the design system before the artifact markup', () => {
   const doc = artifactDocument('<p>hi</p>')
   // Surface ramp, reset and utilities travel with every artifact.
-  for (const token of ['--gui-surface-1', '--gui-surface-2', '--gui-surface-3', '--gui-tint', '--gui-radius', '--gui-gap']) {
+  for (const token of ['--gui-surface-1', '--gui-surface-2', '--gui-surface-3', '--gui-tint', '--gui-radius', '--gui-gap',
+    '--gui-fs-title', '--gui-fs-body', '--gui-fs-caption', '--gui-ease', '--gui-pad', '--gui-radius-sm']) {
     assert.ok(doc.includes(token), `missing ${token}`)
   }
   for (const utility of ['.gui-section', '.gui-card', '.gui-chip', '.gui-label', '.gui-desc', '.gui-note', '.gui-grid']) {
@@ -127,13 +128,17 @@ test('auditArtifactSource reports rule violations and accepts a compliant artifa
   assert.deepEqual(auditArtifactSource('<div class="gui-section"><p class="gui-desc">ok</p></div>'), [])
   assert.deepEqual(auditArtifactSource('<div style="border:1px solid red"></div>'), ['border'])
   assert.deepEqual(auditArtifactSource('<div style="border:0;border-radius:8px"></div>'), [])
-  assert.deepEqual(auditArtifactSource('<div style="box-shadow:0 1px 2px #000"></div>'), ['shadow'])
+  assert.deepEqual(auditArtifactSource('<div style="box-shadow:0 1px 2px #333"></div>'), ['shadow'])
   assert.deepEqual(auditArtifactSource('<div style="background:linear-gradient(red,blue)"></div>'), ['gradient'])
   assert.deepEqual(auditArtifactSource('<body style="padding:20px"></body>'), ['body-spacing'])
   assert.deepEqual(auditArtifactSource('<style>body{padding:12px}</style>'), ['body-spacing'])
   assert.deepEqual(auditArtifactSource('<style>body{margin:0}</style>'), [])
   assert.deepEqual(auditArtifactSource('<!-- note --><p>a</p>'), ['comment'])
-  assert.deepEqual(auditArtifactSource('<div style="border:1px solid red;box-shadow:0 0 1px #000"></div>'), ['border', 'shadow'])
+  assert.deepEqual(auditArtifactSource('<div style="border:1px solid red;box-shadow:0 0 1px #000"></div>'), ['border', 'shadow', 'pure-color'])
+  assert.deepEqual(auditArtifactSource('<p>收入增长 \u2014 翻倍</p>'), ['em-dash'])
+  assert.deepEqual(auditArtifactSource('<p>一站式赋能</p>'), ['buzzword'])
+  assert.deepEqual(auditArtifactSource('<div style="background:#fff"></div>'), ['pure-color'])
+  assert.deepEqual(auditArtifactSource('<p style="background:var(--gui-bg)">ok</p>'), [])
 })
 
 function runAccumulator(events) {

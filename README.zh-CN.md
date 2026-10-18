@@ -36,10 +36,13 @@ agent 在回复正文里写一段 fenced code block：
 工件是裸的 iframe 文档：没有字体、没有间距重置、没有底色。插件的每个工件文档都会在 `<head>` 注入一份设计系统（`DESIGN_SYSTEM_CSS`），把「有约束地生成」落到运行时，而不是只写在提示词里：
 
 - **分层靠底色，不靠描边。** `--gui-surface-1/2/3` 是由浅到深的三层底面，`--gui-tint` / `--gui-tint-strong` 是强调色淡底；分区不再用 1px border。
+- **字号只留三档。** `--gui-fs-title`(18) / `--gui-fs-body`(14) / `--gui-fs-caption`(12)，上下文层级靠字重与 `--gui-fg-dim`，不再堆 11/12.5/13.5 这类 1.08 比例的字号差。
+- **间距与圆角只有令牌。** `--gui-gap`(12) / `--gui-pad`(16)，圆角 `--gui-radius`(12) / `--gui-radius-sm`(8)；chips 用全圆。
 - **外边距强制归零。** `html,body{margin:0!important;padding:0!important}`，工件与对话正文左对齐，间距由内层区块承担。
 - **自带排版基线。** 系统字体栈、14px/1.7、11–17px 字号档位，避免落到浏览器默认衬线字体。
 - **工具类**：`.gui-stack` `.gui-section` `.gui-section--tint` `.gui-card` `.gui-tint` `.gui-chip` `.gui-chip--on` `.gui-label` `.gui-title` `.gui-desc` `.gui-note` `.gui-grid`。
-- **审计**：`auditArtifactSource(source)` 返回违反项（`border` / `shadow` / `gradient` / `blur` / `body-spacing` / `comment`），只提示不拦截。
+- **交互态与动效内置。** `button` 自带主按钮样式、`:active` 缩放、`:focus-visible` 焦点环，触控设备最小 44px；动效只用 `transform`/`opacity`，≤200ms，`--gui-ease` 缓动，并带 `prefers-reduced-motion` 兜底。
+- **审计**：`auditArtifactSource(source)` 返回违反项（`border` / `shadow` / `gradient` / `blur` / `body-spacing` / `comment` / `em-dash` / `buzzword` / `pure-color`），只提示不拦截。
 
 同一套规则以文字形式写进 systemPrompt（`GENERATIVE_UI_GUIDANCE`），模型在生成时即可遵守。
 

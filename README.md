@@ -42,10 +42,13 @@ cookies, or local storage.
 An artifact is a bare iframe document: no font, no spacing reset, no surface. Every artifact document therefore gets a design system inlined into `<head>` (`DESIGN_SYSTEM_CSS`), so constrained generation is enforced at runtime rather than merely requested in the prompt:
 
 - **Separate regions with surfaces, not borders.** `--gui-surface-1/2/3` is a three-step surface ramp; `--gui-tint` / `--gui-tint-strong` are accent washes.
+- **Three type sizes, no more.** `--gui-fs-title`(18) / `--gui-fs-body`(14) / `--gui-fs-caption`(12); hierarchy comes from weight and `--gui-fg-dim`, not from 1.08-ratio size steps.
+- **Spacing and radius are tokens only.** `--gui-gap`(12) / `--gui-pad`(16), radius `--gui-radius`(12) / `--gui-radius-sm`(8); chips stay fully round.
 - **Outer spacing is reset.** `html,body{margin:0!important;padding:0!important}` keeps artifacts flush with the message column; inner blocks own their spacing.
 - **A typography baseline.** System font stack, 14px/1.7, an 11–17px size scale — no browser-default serif.
 - **Utilities**: `.gui-stack` `.gui-section` `.gui-section--tint` `.gui-card` `.gui-tint` `.gui-chip` `.gui-chip--on` `.gui-label` `.gui-title` `.gui-desc` `.gui-note` `.gui-grid`.
-- **Audit**: `auditArtifactSource(source)` reports violations (`border` / `shadow` / `gradient` / `blur` / `body-spacing` / `comment`) without blocking the render.
+- **Interaction and motion built in.** `button` ships with the primary style, `:active` scale, `:focus-visible` ring and 44px touch height; motion stays on `transform`/`opacity` under 200ms with `--gui-ease`, plus a `prefers-reduced-motion` fallback.
+- **Audit**: `auditArtifactSource(source)` reports violations (`border` / `shadow` / `gradient` / `blur` / `body-spacing` / `comment` / `em-dash` / `buzzword` / `pure-color`) without blocking the render.
 
 The same rules travel to the model as text in `GENERATIVE_UI_GUIDANCE`.
 
