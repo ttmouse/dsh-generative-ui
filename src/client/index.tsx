@@ -205,7 +205,13 @@ button:focus-visible{outline:2px solid var(--gui-accent);outline-offset:2px}
 button:disabled{opacity:.5;cursor:not-allowed}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
 padding:1px 5px;border-radius:5px;background:var(--gui-surface-3)}
+button:hover{opacity:.92}
+a{color:inherit;text-underline-offset:2px}
+input,select,textarea{min-height:38px;padding:6px 10px;border:0;border-radius:var(--gui-radius-sm);
+background:var(--gui-surface-2);color:inherit;font:inherit}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--gui-accent);outline-offset:2px}
 @media (pointer:coarse){button{min-height:44px}}
+@media (pointer:coarse){input,select,textarea{min-height:44px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 `
 

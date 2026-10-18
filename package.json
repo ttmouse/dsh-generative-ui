@@ -1,6 +1,6 @@
 {
   "name": "@ttmouse/dsh-generative-ui",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "dsh-generative-ui：让 AI 在 DSH 对话流里直接输出可交互的 HTML 组件（Generative UI）。agent 在回复里写 ```generative-ui 围栏（内容为自包含 HTML），客户端把每轮回答里的工件提取出来，沙箱渲染成内嵌的可交互 UI。纯客户端实现，零后端、零存储——工件就活在消息文本里，会话在它就在。",
   "type": "module",
   "main": "lib/index.mjs",

@@ -112,6 +112,10 @@ test('artifactDocument injects the design system before the artifact markup', ()
   assert.ok(doc.includes('html,body{margin:0!important;padding:0!important}'))
   // A base font keeps artifacts off the browser's default serif.
   assert.ok(doc.includes('-apple-system'))
+  // Interaction baseline: hover, focus ring, form controls, touch height, motion fallback.
+  for (const rule of ['button:hover', ':focus-visible', 'input,select,textarea', 'prefers-reduced-motion', 'pointer:coarse']) {
+    assert.ok(doc.includes(rule), `missing ${rule}`)
+  }
   // The design system precedes the artifact body so authors can still override it.
   assert.ok(doc.indexOf(DESIGN_SYSTEM_CSS) < doc.indexOf('<body><p>hi</p>'))
 })
